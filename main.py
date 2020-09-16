@@ -8,11 +8,11 @@ import time
 from matplotlib import pyplot as plt
 from maml_rl.metalearner import MetaLearner
 from maml_rl.multi_task_metalearner import Multi_MetaLearner
-from maml_rl.policies import CategoricalMLPPolicy, NormalMLPPolicy, hyper_normal_mlp
+from maml_rl.policies import CategoricalMLPPolicy, NormalMLPPolicy, hyper_normal_mlp, hyper_normal_mlp_reverse
 from maml_rl.policies.hyper_normal_mlp import Hyper_Policy
+from maml_rl.policies.hyper_normal_mlp_reverse import Reverse_Hyper_Policy
 from maml_rl.baseline import LinearFeatureBaseline
 from maml_rl.sampler import BatchSampler
-#from tensorboardX import SummaryWriter
 
 def total_rewards(episodes_rewards, aggregation=torch.mean):
     rewards = torch.mean(torch.stack([aggregation(torch.sum(rewards, dim=0))
@@ -24,7 +24,6 @@ def main(args):
         'AntPos-v0', 'HalfCheetahVel-v1', 'HalfCheetahDir-v1', 'HalfCheetahDirBullet-v0','AntPosBullet-v0','AntDirBullet-v0',
         'AntVelBullet-v0','HalfCheetahVelBullet-v0', '2DNavigation-v0','Sparse2DNavigation-v0'])
 
-    # writer = SummaryWriter('./logs/{0}'.format(args.output_folder))
     save_folder = './saves/{0}'.format(args.output_folder)
     if not os.path.exists(save_folder):
         os.makedirs(save_folder)
@@ -33,36 +32,47 @@ def main(args):
         config.update(device=args.device.type)
         json.dump(config, f, indent=2)
 
-    if args.no_hyper:
-        file_name = args.env_name + "_regular_maml_"
-    else:
-        file_name = args.env_name + "_hyper_maml_"
+    file_name = args.env_name
 
     if args.multi_task_critic:
-        file_name = file_name + "_multi_task_extra"
-
-    file_name = file_name + str(args.seed)
-    
+        file_name = file_name + "_multi_task_"
+  
     # Set seeds
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
 
     sampler = BatchSampler(args.env_name, batch_size=args.fast_batch_size,
         num_workers=args.num_workers, seed=args.seed)
+
     if continuous_actions:
         if args.no_hyper:
             policy = NormalMLPPolicy(
+                args.task_dim,
                 int(np.prod(sampler.envs.observation_space.shape)),
                 int(np.prod(sampler.envs.action_space.shape)),
-                hidden_sizes=(args.hidden_size,) * args.num_layers)
+                hidden_sizes=(args.hidden_size,) * args.num_layers,
+                use_task=args.use_task)
+            file_name += "_regular_maml_" 
+            if args.use_task:
+                file_name += "task_"     
             print("regular policy")
         else:
-            policy = Hyper_Policy(args.task_dim,
-                int(np.prod(sampler.envs.observation_space.shape)),
-                int(np.prod(sampler.envs.action_space.shape)),
-                args.num_hyper_layers)
-            args.fast_lr=args.fast_hyper_lr
-            print("hyper policy")
+            if args.use_reverse:
+                policy = Reverse_Hyper_Policy(args.task_dim,
+                    int(np.prod(sampler.envs.observation_space.shape)),
+                    int(np.prod(sampler.envs.action_space.shape)),
+                    args.num_hyper_layers, args.use_task)
+                args.fast_lr=args.fast_hyper_lr
+                print("reverse hyper policy")
+                file_name += "_hyper_reverse_"
+            else:
+                policy = Hyper_Policy(args.task_dim,
+                    int(np.prod(sampler.envs.observation_space.shape)),
+                    int(np.prod(sampler.envs.action_space.shape)),
+                    args.num_hyper_layers, args.use_task)
+                args.fast_lr=args.fast_hyper_lr
+                print("hyper policy")
+                file_name += "_hyper_maml_"
     else:
         policy = CategoricalMLPPolicy(
             int(np.prod(sampler.envs.observation_space.shape)),
@@ -70,6 +80,8 @@ def main(args):
             hidden_sizes=(args.hidden_size,) * args.num_layers)
     baseline = LinearFeatureBaseline(
         int(np.prod(sampler.envs.observation_space.shape)))
+    
+    file_name = file_name + str(args.seed)
 
     if args.multi_task_critic:
         metalearner = Multi_MetaLearner(sampler, policy, baseline, gamma=args.gamma,
@@ -87,19 +99,22 @@ def main(args):
     episode_num = 0
     t0 = time.time()
     
+    #tasks
+    train_tasks, task_norm = sampler.sample_unseen_task(num_of_unseen=args.num_of_tasks)
     #test tasks
-    tasks, task_norm = sampler.sample_unseen_task(num_of_unseen=args.num_of_tasks)
-    #train tasks
-    unseen_task, _ = sampler.sample_unseen_task(tasks, num_of_unseen=args.test_tasks)
-  #  unseen_task = sampler.sample_unseen_task(num_of_unseen=args.test_tasks)
+    unseen_task, _ = sampler.sample_unseen_task(train_tasks, num_of_unseen=args.test_tasks)
+
     for batch in range(args.num_batches):
-        tasks = sampler.sample_tasks(tasks, num_tasks=args.meta_batch_size)
-      #  tasks, task_norm = sampler.sample_tasks(unseen_task, num_tasks=args.meta_batch_size)
+        #sample meta batch
+        tasks = sampler.sample_tasks(train_tasks, num_tasks=args.meta_batch_size)
+
+        #train
         episodes = metalearner.sample(tasks, task_norm, first_order=args.first_order)
-        metalearner.step(episodes, args.device, max_kl=args.max_kl, cg_iters=args.cg_iters,
+        metalearner.step(episodes,tasks,task_norm, args.device, max_kl=args.max_kl, cg_iters=args.cg_iters,
             cg_damping=args.cg_damping, ls_max_steps=args.ls_max_steps,
             ls_backtrack_ratio=args.ls_backtrack_ratio)
-        total_steps += args.ls_max_steps
+
+        #evaluate
         test_before, test_after = metalearner.evaluate_task(unseen_task,  task_norm, episode_num)
         test_a_rewards.append(test_after); test_b_rewards.append(test_before)
         before_rewards.append(total_rewards([ep.rewards for __, ep, _ in episodes]))
@@ -113,19 +128,7 @@ def main(args):
         np.save("./results/%s_before_rewards" % (file_name), before_rewards)
         np.save("./results/%s_test_after_rewards" % (file_name), test_a_rewards)
         np.save("./results/%s_test_before_rewards" % (file_name), test_b_rewards)
-
-    
-    title = ""
-    for task in unseen_task:
-        title += "_" + str(task.values())
-    plt.title(args.env_name + "unseen_task: " + title)
-    plt.plot(range(len(before_rewards)), before_rewards, label="before")
-    plt.plot(range(len(after_rewards)), after_rewards, label="after")
-    plt.plot(range(len(test_b_rewards)), test_b_rewards, label="test_before")
-    plt.plot(range(len(test_a_rewards)), test_a_rewards, label="test_after")
-    plt.legend()
-    plt.savefig(file_name + ".png") 
-    
+#        torch.save(policy, "./pytorch_models/%s" % (file_name))
 
 if __name__ == '__main__':
     import argparse
@@ -135,15 +138,17 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Reinforcement learning with '
         'Model-Agnostic Meta-Learning (MAML)')
     # General
-    parser.add_argument('--env-name', type=str, default='AntDirBullet-v0',#'Sparse2DNavigation-v0',#'AntPosBullet-v0',#'AntVelBullet-v0',#"HalfCheetahVelBullet-v0",'2DNavigation-v0','HalfCheetahDirBullet-v0',#
+    parser.add_argument('--env-name', type=str, default='AntDirBullet-v0',#'AntDirBullet-v0',#'Sparse2DNavigation-v0',#'AntPosBullet-v0',#'AntVelBullet-v0',#"HalfCheetahVelBullet-v0",'2DNavigation-v0','HalfCheetahDirBullet-v0',#
         help='name of the environment')
     parser.add_argument("--no_hyper", action="store_true")	# use regular critic
-    parser.add_argument("--multi_task_critic", action="store_true", default=True)	# use multi task critic
+    parser.add_argument("--multi_task_critic", action="store_true")	# use multi task critic
+    parser.add_argument("--use_task", action="store_true")
+    parser.add_argument("--use_reverse", action="store_true")
     parser.add_argument('--gamma', type=float, default=0.95,
         help='value of the discount factor gamma')
     parser.add_argument('--seed', type=int, default=0,
         help='set seed')
-    parser.add_argument('--test_tasks', type=int, default=5,
+    parser.add_argument('--test_tasks', type=int, default=30,
         help='number of unseen task or testing')
     parser.add_argument('--tau', type=float, default=1.0,
         help='value of the discount factor for GAE')
@@ -163,8 +168,6 @@ if __name__ == '__main__':
         help='value of the discount factor gamma')
     parser.add_argument('--fast-batch-size', type=int, default=20,
         help='batch size for each individual task')
-    parser.add_argument('--max-horizon', type=int, default=200,
-        help='max horizon H for sample')
     parser.add_argument('--fast-lr', type=float, default=0.1,
         help='learning rate for the 1-step gradient update of MAML')
     parser.add_argument('--fast-hyper-lr', type=float, default=5e-5,
@@ -175,7 +178,7 @@ if __name__ == '__main__':
         help='number of batches')
     parser.add_argument('--num-of-tasks', type=int, default=100,
         help='number of batches')
-    parser.add_argument('--meta-batch-size', type=int, default=2,
+    parser.add_argument('--meta-batch-size', type=int, default=40,
         help='number of tasks per batch')
     parser.add_argument('--max-kl', type=float, default=1e-2,
         help='maximum value for the KL constraint in TRPO')
