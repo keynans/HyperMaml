@@ -16,10 +16,10 @@ class HalfCheetahDirEnv(HalfCheetahBulletEnv):
         self.walk_target_x, self.walk_target_y = task.get('direction', (self.max ,0.0))
         self.robot.walk_target_x, self.robot.walk_target_y = task.get('direction', (self.max ,0.0))
 
-    def sample_tasks(self, unseen_tasks, num_tasks):
-        directions = (2 * self.np_random.binomial(1, p=0.5, size=(num_tasks,)) - 1) * self.max 
-        tasks = [{'direction': (direction,0.0)} for direction in directions]
-        return tasks
+    def sample_tasks(self, tasks, num_tasks):
+        goals = np.random.choice(tasks, num_tasks)
+        goals = goals.tolist()
+        return goals
 
     def sample_unseen_task(self, tasks):
         #dir has no unsee task so return fwsd or bck
@@ -32,6 +32,19 @@ class HalfCheetahDirEnv(HalfCheetahBulletEnv):
         self.walk_target_x, self.walk_target_y = task['direction']
         self.robot.walk_target_x, self.robot.walk_target_y = task['direction']
 
+    def step(self,action):
+        s, r, done, data = HalfCheetahBulletEnv.step(self,action)
+        yaw = self.robot.body_rpy[2]
+        s[1] = 0.
+        s[2] = yaw
+        return s, r, done, data 
+
+    def reset(self):
+        state = HalfCheetahBulletEnv.reset(self)
+        yaw = self.robot.body_rpy[2]
+        state[1] = 0.
+        state[2] = yaw
+        return state
 
 class HalfCheetahVelEnv(HalfCheetahBulletEnv):
     """
@@ -45,17 +58,13 @@ class HalfCheetahVelEnv(HalfCheetahBulletEnv):
         super(HalfCheetahVelEnv, self).__init__()
         self._task = task
         self._goal_vel = task.get('velocity', 0.0)
-        self.max = 2.0
+        self.max = 3.0
         self.min = 0.0
 
-    def sample_tasks(self, unseen_tasks, num_tasks):
-        velocities = self.np_random.uniform(self.min, self.max, size=(num_tasks,))
-        unseen = [vel['velocity'] for vel in unseen_tasks]
-        for i in range(velocities.shape[0]):
-            while velocities[i] in unseen:
-                velocities[i] = self.np_random.uniform(self.min, self.max)
-        tasks = [{'velocity': velocity} for velocity in velocities]
-        return tasks
+    def sample_tasks(self, tasks, num_tasks):
+        goals = np.random.choice(tasks, num_tasks)
+        goals = goals.tolist()
+        return goals
     
     def sample_unseen_task(self, tasks):
         velocity = self.np_random.uniform(self.min, self.max)
@@ -91,4 +100,15 @@ class HalfCheetahVelEnv(HalfCheetahBulletEnv):
   
         self.HUD(state, a, done)
 
+        yaw = self.robot.body_rpy[2]
+        state[1] = 0.
+        state[2] = yaw
+
         return state, reward, bool(done), {}
+
+    def reset(self):
+        state = HalfCheetahBulletEnv.reset(self)
+        yaw = self.robot.body_rpy[2]
+        state[1] = 0.
+        state[2] = yaw
+        return state
