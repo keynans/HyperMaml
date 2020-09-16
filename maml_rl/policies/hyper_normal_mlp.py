@@ -114,13 +114,14 @@ class Task_Embadding(nn.Module):
 
 class Hyper_Policy(Policy):
     # Hyper net that create weights from the state for a net that estimates function Q(S, A)
-    def __init__(self, task_dim, state_dim, action_dim, num_hidden, var_tasks=1.0 , init_std=1.0, min_std=1e-6):
+    def __init__(self, task_dim, state_dim, action_dim, num_hidden, use_task=True, var_tasks=1.0 , init_std=1.0, min_std=1e-6):
         super(Hyper_Policy, self).__init__(input_size=state_dim, output_size=action_dim)
 
         self.min_log_std = math.log(min_std)
         self.sigma = nn.Parameter(torch.Tensor(action_dim))
         self.sigma.data.fill_(math.log(init_std))
 
+        self.use_task = True
         self.task_dim = task_dim
         self.state_dim = state_dim
         self.num_hidden = num_hidden
