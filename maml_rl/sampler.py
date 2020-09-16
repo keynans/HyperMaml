@@ -5,6 +5,8 @@ import numpy as np
 
 from maml_rl.envs.subproc_vec_env import SubprocVecEnv
 from maml_rl.episode import BatchEpisodes
+from torch.nn.utils.convert_parameters import (vector_to_parameters,
+                                               parameters_to_vector)
 
 def make_env(env_name):
     def _make_env():
@@ -35,6 +37,10 @@ class BatchSampler(object):
             self.queue.put(None)
         observations, batch_ids = self.envs.reset()
         dones = [False]
+        if params is not None:
+                old_params = parameters_to_vector(policy.parameters())
+                policy.load_state_dict(params)
+
         #TODO run once the hyper net task and then run in the loop the policy net
         while (not all(dones)) or (not self.queue.empty()):
             with torch.no_grad():
@@ -44,6 +50,10 @@ class BatchSampler(object):
             new_observations, rewards, dones, new_batch_ids, _ = self.envs.step(actions)
             episodes.append(observations, actions, rewards, batch_ids)
             observations, batch_ids = new_observations, new_batch_ids
+
+        if params is not None:
+            vector_to_parameters(old_params, policy.parameters())
+
         return episodes
 
     def reset_task(self, task):

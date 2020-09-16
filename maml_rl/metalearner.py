@@ -95,7 +95,10 @@ class MetaLearner(object):
 
         for (task, train_episodes, valid_episodes), old_pi in zip(episodes, old_pis):
             params = self.adapt(task, train_episodes)
+            old_params = parameters_to_vector(self.policy.parameters())
+            self.policy.load_state_dict(params)
             pi = self.policy(valid_episodes.observations, task, params=params)
+            vector_to_parameters(old_params, self.policy.parameters())
 
             if old_pi is None:
                 old_pi = detach_distribution(pi)
@@ -131,7 +134,12 @@ class MetaLearner(object):
         for (task, train_episodes, valid_episodes), old_pi in zip(episodes, old_pis):
             params = self.adapt(task,train_episodes)
             with torch.set_grad_enabled(old_pi is None):
+                old_params = parameters_to_vector(self.policy.parameters())
+                self.policy.load_state_dict(params)
+
                 pi = self.policy(valid_episodes.observations, task, params=params)
+                vector_to_parameters(old_params, self.policy.parameters())
+                
                 pis.append(detach_distribution(pi))
 
                 if old_pi is None:
@@ -161,7 +169,7 @@ class MetaLearner(object):
         return (torch.mean(torch.stack(losses, dim=0)),
                 torch.mean(torch.stack(kls, dim=0)), pis)
 
-    def step(self, episodes, device, max_kl=1e-3, cg_iters=10, cg_damping=1e-2,
+    def step(self, episodes, total_tasks, scale, device, max_kl=1e-3, cg_iters=10, cg_damping=1e-2,
              ls_max_steps=10, ls_backtrack_ratio=0.5):
         """Meta-optimization step (ie. update of the initial parameters), based 
         on Trust Region Policy Optimization (TRPO, [4]).

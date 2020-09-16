@@ -35,14 +35,19 @@ class Multi_MetaLearner(MetaLearner):
         MetaLearner.__init__(self, sampler, policy, baseline, gamma,
                  fast_lr, tau, device)
         self.to(device)
+        self.par2=[]
+        self.par3=[]
         print("multi meta")
 
     def task_loss(self,task, episodes, old_pi, params=None):
+        # Fit the baseline to the training episodes
+        self.baseline.fit(episodes)
+        values = self.baseline(episodes)
+        advantages = episodes.gae(values,tau=self.tau)
+        advantages = weighted_normalize(advantages, weights=episodes.mask)
 
         with torch.set_grad_enabled(old_pi is None):
-            values = self.baseline(episodes)
-            advantages = episodes.gae(values, tau=self.tau)
-            advantages = weighted_normalize(advantages, weights=episodes.mask)
+ 
             pi = self.policy(episodes.observations, task, params=params)
             if old_pi is None:
                 old_pi = detach_distribution(pi)
@@ -120,19 +125,17 @@ class Multi_MetaLearner(MetaLearner):
 
         return torch.mean(torch.stack(loss, dim=0)),torch.mean(torch.stack(kls, dim=0)),pis
    
-    def step(self, episodes, device, max_kl=1e-3, cg_iters=10, cg_damping=1e-2,
+    def step(self, episodes, total_tasks, scale, device, max_kl=1e-3, cg_iters=10, cg_damping=1e-2,
              ls_max_steps=10, ls_backtrack_ratio=0.5, beta=0.001, regulation=False):
         """Meta-optimization step (ie. update of the initial parameters), based 
         on Trust Region Policy Optimization (TRPO, [4]).
         """
-
-        regulation=True
         
         old_loss, _, old_pis = self.get_loss(episodes)
 
         # Save the old parameters
         old_params = parameters_to_vector(self.policy.parameters())
-        old_policy = type(self.policy)(self.policy.task_dim, self.policy.state_dim, self.policy.action_dim, self.policy.num_hidden).to(device)
+        old_policy = type(self.policy)(self.policy.task_dim, self.policy.state_dim, self.policy.action_dim, self.policy.num_hidden,self.policy.use_task).to(device)
         vector_to_parameters(old_params, old_policy.parameters())
 
         #compute gradient and do a step
@@ -142,7 +145,11 @@ class Multi_MetaLearner(MetaLearner):
         #compute regulation with new parameters
         if regulation:
             reg = 0
-            for (task, train_episodes, _) in episodes:
+            batch_tasks = [task.cpu().numpy() for task,_,_ in episodes]
+            for task in total_tasks:
+                task = self.sampler.get_task_tensor(task, scale).to(device=self.device)
+                if (task.cpu().numpy() == batch_tasks).all(1).any():
+                    continue
                 par = self.policy.main_net_params(task)
                 old_par = old_policy.main_net_params(task)
                 reg += torch.norm(old_par - par, 2) ** 2
