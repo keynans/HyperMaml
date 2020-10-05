@@ -22,7 +22,7 @@ def total_rewards(episodes_rewards, aggregation=torch.mean):
 def main(args):
     continuous_actions = (args.env_name in ['AntVel-v1', 'AntDir-v1',
         'AntPos-v0', 'HalfCheetahVel-v1', 'HalfCheetahDir-v1', 'HalfCheetahDirBullet-v0','AntPosBullet-v0','AntDirBullet-v0',
-        'AntVelBullet-v0','HalfCheetahVelBullet-v0', '2DNavigation-v0','Sparse2DNavigation-v0'])
+        'AntVelBullet-v0','HalfCheetahVelBullet-v0', '2DNavigation-v0','Sparse2DNavigation-v0', 'HalfCheetahVelHardBullet-v0'])
 
     save_folder = './saves/{0}'.format(args.output_folder)
     if not os.path.exists(save_folder):
@@ -54,7 +54,7 @@ def main(args):
                 use_task=args.use_task)
             file_name += "_regular_maml_" 
             if args.use_task:
-                file_name += "task_"     
+                file_name += "task_"
             print("regular policy")
         else:
             if args.use_reverse:
@@ -62,7 +62,7 @@ def main(args):
                     int(np.prod(sampler.envs.observation_space.shape)),
                     int(np.prod(sampler.envs.action_space.shape)),
                     args.num_hyper_layers, args.use_task)
-                args.fast_lr=args.fast_hyper_lr
+                args.fast_lr=args.fast_lr
                 print("reverse hyper policy")
                 file_name += "_hyper_reverse_"
             else:
@@ -70,7 +70,7 @@ def main(args):
                     int(np.prod(sampler.envs.observation_space.shape)),
                     int(np.prod(sampler.envs.action_space.shape)),
                     args.num_hyper_layers, args.use_task)
-                args.fast_lr=args.fast_hyper_lr
+                args.fast_lr=args.fast_lr
                 print("hyper policy")
                 file_name += "_hyper_maml_"
     else:
@@ -128,7 +128,7 @@ def main(args):
         np.save("./results/%s_before_rewards" % (file_name), before_rewards)
         np.save("./results/%s_test_after_rewards" % (file_name), test_a_rewards)
         np.save("./results/%s_test_before_rewards" % (file_name), test_b_rewards)
-#        torch.save(policy, "./pytorch_models/%s" % (file_name))
+
 
 if __name__ == '__main__':
     import argparse
@@ -138,7 +138,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Reinforcement learning with '
         'Model-Agnostic Meta-Learning (MAML)')
     # General
-    parser.add_argument('--env-name', type=str, default='AntDirBullet-v0',#'AntDirBullet-v0',#'Sparse2DNavigation-v0',#'AntPosBullet-v0',#'AntVelBullet-v0',#"HalfCheetahVelBullet-v0",'2DNavigation-v0','HalfCheetahDirBullet-v0',#
+    parser.add_argument('--env-name', type=str, default='HalfCheetahDirBullet-v0',#'AntDirBullet-v0',#'AntDirBullet-v0',#'Sparse2DNavigation-v0',#'AntPosBullet-v0',#'AntVelBullet-v0',#"HalfCheetahVelBullet-v0",'2DNavigation-v0','HalfCheetahDirBullet-v0',#
         help='name of the environment')
     parser.add_argument("--no_hyper", action="store_true")	# use regular critic
     parser.add_argument("--multi_task_critic", action="store_true")	# use multi task critic
@@ -148,7 +148,7 @@ if __name__ == '__main__':
         help='value of the discount factor gamma')
     parser.add_argument('--seed', type=int, default=0,
         help='set seed')
-    parser.add_argument('--test_tasks', type=int, default=30,
+    parser.add_argument('--test_tasks', type=int, default=20,
         help='number of unseen task or testing')
     parser.add_argument('--tau', type=float, default=1.0,
         help='value of the discount factor for GAE')
