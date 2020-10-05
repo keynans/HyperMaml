@@ -224,3 +224,21 @@ class MetaLearner(object):
         after_rewards = total_rewards([ep.rewards for __, _, ep, in episode])
 
         return before_rewards, after_rewards
+
+    def evaluate_task_bias(self, unseen_task, scale, episode_num, gradient_steps=1):
+        episode = []
+        for task in unseen_task:
+            self.sampler.reset_task(task)
+            task_tensor = self.sampler.get_task_tensor(task, scale).to(device=self.device)
+            train_episodes = self.sampler.sample(task_tensor, self.policy,
+                gamma=self.gamma, device=self.device)
+            
+            episode.append((task_tensor, train_episodes))
+        
+        def total_rewards(episodes_rewards, aggregation=torch.mean):
+            rewards = torch.mean(torch.stack([aggregation(torch.sum(rewards, dim=0))
+                for rewards in episodes_rewards], dim=0))
+            return rewards.item()
+        before_rewards = total_rewards([ep.rewards for __, ep in episode])
+
+        return before_rewards
