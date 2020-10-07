@@ -14,14 +14,22 @@ class NormalMLPPolicy(Policy):
     `HalfCheetahDir`). The code is adapted from 
     https://github.com/cbfinn/maml_rl/blob/9c8e2ebd741cb0c7b8bf2d040c4caeeb8e06cc95/sandbox/rocky/tf/policies/maml_minimal_gauss_mlp_policy.py
     """
-    def __init__(self, input_size, output_size, hidden_sizes=(),
+    def __init__(self, task_dim, input_size, output_size, hidden_sizes=(),use_task=False,
                  nonlinearity=F.relu, init_std=1.0, min_std=1e-6):
         super(NormalMLPPolicy, self).__init__(
             input_size=input_size, output_size=output_size)
-        self.hidden_sizes = hidden_sizes
+
+        self.task_dim = task_dim
+        self.state_dim = input_size
+        self.num_layers = len(hidden_sizes) + 1
+        self.action_dim = output_size
+        self.num_hidden = hidden_sizes
         self.nonlinearity = nonlinearity
         self.min_log_std = math.log(min_std)
-        self.num_layers = len(hidden_sizes) + 1
+        self.use_task = use_task
+
+        if use_task:
+            input_size += task_dim
 
         layer_sizes = (input_size,) + hidden_sizes
         for i in range(1, self.num_layers):
@@ -34,9 +42,19 @@ class NormalMLPPolicy(Policy):
         self.apply(weight_init)
 
     def forward(self, input, task=None, params=None):
-        if params is None:
-            params = OrderedDict(self.named_parameters())
+#        if params is None:
+        params = OrderedDict(self.named_parameters())
+
         output = input
+        if self.use_task and task is not None:
+            task = task.unsqueeze(0).repeat(input.shape[0],1)
+            dim=1
+            if len(input.shape) ==  3:
+                task = task.unsqueeze(1).repeat(1,input.shape[1],1)
+                dim=2
+
+            output = torch.cat([input, task],dim=dim)
+        
         for i in range(1, self.num_layers):
             output = F.linear(output,
                 weight=params['layer{0}.weight'.format(i)],

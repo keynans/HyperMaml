@@ -1,7 +1,9 @@
 import torch
 import torch.nn as nn
-
+import copy
 from collections import OrderedDict
+device = torch.device('cuda'
+        if torch.cuda.is_available() else 'cpu')
 
 def weight_init(module):
     if isinstance(module, nn.Linear):
